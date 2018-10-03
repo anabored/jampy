@@ -28,7 +28,7 @@ class Executor(object):
     def utility(self):
         return self.__utility
 
-    @property.setter
+    @utility.setter
     def utility(self, value):
         self.__utility = value
 
@@ -131,6 +131,25 @@ class Executor(object):
         return plan_body_deco
 
     @classmethod
+    def PLAN(cls,plan_func= None, goal_name:str = None, heuristic_margin:float = -1.):
+        if plan_func is not None:
+            plan = _Plan(plan_func, goal_name, heuristic_margin)
+            if goal_name in cls.goal_dic:
+                cls.goal_dic[goal_name].append(plan)
+            else:
+                cls.goal_dic[goal_name] = [plan]
+            return plan
+        else:
+            def plan_body_deco(plan_body):
+                plan = _Plan(plan_body, goal_name, heuristic_margin)
+                if goal_name in cls.goal_dic:
+                    cls.goal_dic[goal_name].append(plan)
+                else:
+                    cls.goal_dic[goal_name] = [plan]
+                return plan
+            return plan_body_deco
+
+    @classmethod
     def rule_deco(cls,rule_callback):
         return rule_callback
 
@@ -141,3 +160,16 @@ class Executor(object):
             if self.i : return None
             return primitive_func(self, *args,**kwargs)
         return wrapper
+
+class _Plan:
+    def __init__(self, plan_func, goal_name:str, heuristic_margin:float):
+        self.__plan_func = plan_func
+        self.__goal_name = goal_name
+        self.__heuristic_margin = heuristic_margin
+        self.__experience_margin = []
+
+    def __call__(self, *args, **kwargs):
+
+        res = self.__plan_func(*args,**kwargs)
+
+        return res

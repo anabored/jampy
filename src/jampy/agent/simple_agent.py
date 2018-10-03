@@ -14,6 +14,8 @@ class SimpleAgent(Executor):
         # TODO : subject, location, direction, information, emotion...
         self.__state_vector = np.zeros(5)
 
+    def primitive_action(self):
+        pass
 
 
     def simple_utility_func(self):
