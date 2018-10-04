@@ -1,28 +1,18 @@
-from core.simple_reasoner import SimpleReasoner
-import _thread
-from functools import wraps
+from simple_reasoner import SimpleReasoner
+from plan_dic import plan_dic
+import copy
 
-# TODO : JAMAgent
+#
+# TODO : Should Executor have plan dictionary? rather, some module's ownership is more appropriate?
+# and just type module.plan_dic not self.__plan_dic
+#
 class Executor(object):
-    goal_dic = {}
 
-    def __init__(self, reasoner = SimpleReasoner()):
+    def __init__(self, reasoner=SimpleReasoner()):
         self.__reasoner = reasoner
-        self.__intentions = []
+        self.goal_list = []
         self.plan_execute = self.__die_easy
         self.__utility = 0
-
-        # TODO : policy
-        self.__get_highest_utility_plan = self.__get_highest_expectation
-
-    # def achieve_sync(self, goal_name):
-    #     self.__class__.goal_dic[goal_name]
-    #
-    # def achieve_async(self, goal_name):
-    #     _thread.start_new_thread()
-    #
-    # def maintain(self, goal_name, callback):
-    #     pass
 
     @property
     def utility(self):
@@ -36,140 +26,154 @@ class Executor(object):
         self.plan_execute = self.__die_hard
 
     def __run(self):
-        while len(self.__intentions) > 0:
-            current_goal = None
-            current_plan = None
-            utility_value = -1
-            print(self.__intentions)
-            for goal_name in self.__intentions:
-                temp_plan, temp_value = self.__get_highest_utility_plan(goal_name)
-                if utility_value < temp_value:
-                    utility_value = temp_value
-                    current_goal = goal_name
-                    current_plan = temp_plan
-            next_goal = self.plan_execute(current_goal, current_plan)
+        while len(self.goal_list) > 0:
+            callable_plan = self.__plan_select()
+            # TODO : processing tree-structure-plan code should be added
+            next_goal = self.plan_execute(callable_plan)
             if next_goal is not None:
-                self.__intentions.append(next_goal)
+                self.goal_list.append(next_goal)
 
-    def plan_execute(self, goal, plan):
+    def set_plan_select_plan(self, goal_name:str, **kwargs):
+        if goal_name in plan_dic.keys():
+            plan = plan_dic[goal_name]
+            if isinstance(plan,_Plan):
+                self.__plan_select = plan.bind(**kwargs)
+            else:
+                raise TypeError("plan of {} is not instance of Plan".format(plan.goal_name))
+        else:
+            raise KeyError("plan for {} is not exist".format(goal_name))
+
+    def __plan_select(self):
+        raise Exception("before running, set_plan_select_plan should be called")
+
+    def plan_execute(self, callable_plan):
         pass
 
     #
     # for debugging
     #
-    def __die_easy(self, goal, plan):
-        print(goal)
-        next_goal = plan(self)
-        print(next_goal)
-        print(self.__intentions)
-        self.__intentions.remove(goal)
+    def __die_easy(self, callable_plan):
+        next_goal = callable_plan()
+        self.goal_list.remove(callable_plan.goal_name)
         return next_goal
 
     #
     # originally, agent sould always be in alive state
     #
-    def __die_hard(self, goal, plan):
+    def __die_hard(self, plan):
         try:
-            next_goal = plan(self)
-            self.__intentions.remove(goal)
+            next_goal = plan()
+            self.goal_list.remove(plan.goal_name)
         except Exception as e:
             print(e)
             next_goal = None
         return next_goal
 
-    #
-    # utility function iter : utility value might be dynamically changed, yet sorting is not considered
-    #
-    def __get_highest_utility_plan(self, goal_name):
-        plan_dic = self.__class__.goal_dic[goal_name]
-        utility_value = 0
-        for plan, utility_func in plan_dic.items():
-            temp_value = utility_func(self)
-            if temp_value > utility_value:
-                utility_value = temp_value
-                highest_utility_plan = plan
-        return highest_utility_plan, utility_value
-
-    def __get_highest_expectation(self, goal_name):
-        print(goal_name)
-        plan_dic = self.__class__.goal_dic[goal_name]
-        utility_value = -1
-        for plan, experience_array in plan_dic.items():
-            # TODO : change to numpy reduce
-            sum =0.
-            for experience in experience_array:
-                print(experience)
-                sum +=experience
-            temp_value = sum/len(experience_array)
-            if temp_value > utility_value:
-                utility_value = temp_value
-                highest_utility_plan = plan
-        return highest_utility_plan, utility_value
-
     def post(self, goal_name):
-        self.__intentions.append(goal_name)
+        self.goal_list.append(goal_name)
 
     def start(self):
         self.__reasoner.start()
         self.__run()
 
-    @classmethod
-    def plan_deco(cls,goal_name: str, heuristic_margin:float):
-        def plan_body_deco(plan):
-            if goal_name in cls.goal_dic:
-                cls.goal_dic[goal_name][plan] = [heuristic_margin]
-            else:
-                cls.goal_dic[goal_name] = {plan:[heuristic_margin]}
-            @wraps
-            def wrapper(self:Executor, *args, **kwargs):
-                prev_utility_value = cls.utility
-                res =  plan(self, *args,**kwargs)
-                marginal_utility = cls.utility - prev_utility_value
-                cls.goal_dic[goal_name][plan].append(marginal_utility)
-                return res
-            return wrapper
-        return plan_body_deco
-
-    @classmethod
-    def PLAN(cls,plan_func= None, goal_name:str = None, heuristic_margin:float = -1.):
+    #
+    # push out all of pre-defined goal:plan mapping, and insert a plan
+    #
+    @staticmethod
+    def ONLY_ONE_PLAN_FOR_GOAL(plan_func=None,
+                               goal_name:str = None,
+                               argument_meta_info:dict={}):
         if plan_func is not None:
-            plan = _Plan(plan_func, goal_name, heuristic_margin)
-            if goal_name in cls.goal_dic:
-                cls.goal_dic[goal_name].append(plan)
+            plan = _Plan(plan_func, goal_name, 1, argument_meta_info,0)
+            plan_dic[goal_name] = plan
+        else:
+            def plan_body_deco(plan_body):
+                plan = _Plan(plan_body, goal_name, 1,argument_meta_info,0)
+                plan_dic[goal_name] = plan
+                return plan
+
+            return plan_body_deco
+
+    @staticmethod
+    def PLAN(plan_func=None,
+             goal_name: str = None,
+             heuristic_marginal_utility: float or str or _Plan= -1.,
+             argument_meta_info:dict={},
+             utility_operand: float or str=-1):
+        if plan_func is not None:
+            plan = _Plan(plan_func, goal_name, heuristic_marginal_utility, argument_meta_info, utility_operand)
+            if goal_name in plan_dic:
+                plan_dic[goal_name].append(plan)
             else:
-                cls.goal_dic[goal_name] = [plan]
+                plan_dic[goal_name] = [plan]
             return plan
         else:
             def plan_body_deco(plan_body):
-                plan = _Plan(plan_body, goal_name, heuristic_margin)
-                if goal_name in cls.goal_dic:
-                    cls.goal_dic[goal_name].append(plan)
+                plan = _Plan(plan_body, goal_name, heuristic_marginal_utility, argument_meta_info, utility_operand)
+                if goal_name in plan_dic:
+                    plan_dic[goal_name].append(plan)
                 else:
-                    cls.goal_dic[goal_name] = [plan]
+                    plan_dic[goal_name] = [plan]
                 return plan
+
             return plan_body_deco
 
-    @classmethod
-    def rule_deco(cls,rule_callback):
-        return rule_callback
 
-    @classmethod
-    def primitive_deco(cls, primitive_func):
-        @wraps
-        def wrapper(self: Executor, *args, **kwargs):
-            if self.i : return None
-            return primitive_func(self, *args,**kwargs)
-        return wrapper
-
-class _Plan:
-    def __init__(self, plan_func, goal_name:str, heuristic_margin:float):
+class _Plan(object):
+    def __init__(self, plan_func,
+                 goal_name: str,
+                 heuristic_marginal_utility: float or str or _Plan,
+                 argument_meta_info: dict,
+                 utility_operand: float or str):
         self.__plan_func = plan_func
         self.__goal_name = goal_name
-        self.__heuristic_margin = heuristic_margin
-        self.__experience_margin = []
+        self.__h_mu = heuristic_marginal_utility
+        self.__arg_info = argument_meta_info
+        self.__mu = utility_operand
+        self.kwargs = {}
 
-    def __call__(self, *args, **kwargs):
+    def bind(self, **kwargs):
+        for key,value in self.__arg_info.items():
+            if key in kwargs:
+                if not issubclass(type(kwargs[key]),value):
+                    raise TypeError(key+" of binding is not subclass of "+value.__name__)
+                    return
+        plan_copy = copy.deepcopy(self)
+        plan_copy.kwargs.update(kwargs)
+        return plan_copy
 
-        res = self.__plan_func(*args,**kwargs)
-
+    def __call__(self, **kwargs):
+        print("calling1")
+        for key,value in self.__arg_info.items():
+            if key in kwargs:
+                if not issubclass(type(kwargs[key]),value):
+                    raise TypeError(key+" of binding is not subclass of "+value.__name__)
+                    return
+        temp_dic = kwargs
+        print(self.kwargs)
+        print("calling2")
+        temp_dic.update(self.kwargs)
+        res = self.__plan_func(**temp_dic)
         return res
+
+    @property
+    def argument_meta_info(self):
+        return self.__arg_info
+
+    @property
+    def goal_name(self):
+        return self.__goal_name
+
+    @property
+    def heuristic_marginal_utility(self):
+        if callable(self.__h_mu):
+            return self.__h_mu()
+        else:
+            return self.__h_mu
+
+    @property
+    def marginal_utility(self):
+        if callable(self.__mu):
+            return self.__mu()
+        else:
+            return self.__mu
