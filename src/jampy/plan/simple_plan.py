@@ -6,6 +6,7 @@ from world.simple_world import SimpleWorld
 # if post goal occurs from external interface,
 # it could handle that circumstance more easy than
 # when it is implemented with some python-dependent-structure like class
+# ---> python has eval method, what exactly this method can do?
 #
 
 #
@@ -17,17 +18,24 @@ from world.simple_world import SimpleWorld
 # (but, in fact, optimal path's real cost is lower)
 #
 
+#
+#
+#
+
 # TODO : if @SimpleAgent.PLAN( ... ) replaces below, what happens?
 @plandef(goal_name="HelloWorld",
          heuristic_marginal_utility=0.8,
          argument_meta_info={"agent":SimpleAgent, "world":SimpleWorld},
          utility_operand="simple_utility")
 def __hello_world_plan(agent:SimpleAgent, world:SimpleWorld):
-    agent.post("go front")
+    #
+    # after python 3.5, async def, await keyword is added
+    #
+    yield "go_front"
     yield "ByeWorld"
     # TODO :
     # exactly same with self.post("ByeWorld")
-    return
+    return 0.5
 
 @plandef(goal_name="simple_utility",
          heuristic_marginal_utility=0.8,

@@ -26,12 +26,16 @@ class Executor(object):
         self.plan_execute = self.__die_hard
 
     def __run(self):
+        callable_or_iterable = self.__plan_select()
+        while callable_or_iterable is not None:
+            callable_or_iterable = self.__plan_execute(callable_or_iterable)
         while len(self.goal_list) > 0:
             callable_plan = self.__plan_select()
             # TODO : processing tree-structure-plan code should be added
-            next_goal = self.plan_execute(callable_plan)
-            if next_goal is not None:
-                self.goal_list.append(next_goal)
+            next_callable = self.plan_execute(callable_plan)
+            # if
+            if next_callable is not None:
+                self.goal_list.append(next_callable)
 
     def set_plan_select_plan(self, goal_name:str, **kwargs):
         if goal_name in plan_dic.keys():
@@ -46,13 +50,16 @@ class Executor(object):
     def __plan_select(self):
         raise Exception("before running, set_plan_select_plan should be called")
 
-    def plan_execute(self, callable_plan):
+    def __plan_execute(self, callable_or_iterable):
         pass
 
     #
     # for debugging
     #
-    def __die_easy(self, callable_plan):
+    def __die_easy(self, callable_or_iterable):
+        async def wow():
+            print()
+        next_callable = next_callable()
         next_goal = callable_plan()
         self.goal_list.remove(callable_plan.goal_name)
         return next_goal
@@ -117,7 +124,14 @@ class Executor(object):
                 return plan
 
             return plan_body_deco
+    @staticmethod
+    def SUBGOAL(goal_name):
+        def sub_goaling(executor:Executor,goal_name:str, utility:float):
+            executor.utility = executor.utility + utility
+            return executor.plan_execute(executor.__plan_select())
+        return sub_goaling
 
+from inspect import isgeneratorfunction
 
 class _Plan(object):
     def __init__(self, plan_func,
@@ -142,19 +156,20 @@ class _Plan(object):
         plan_copy.kwargs.update(kwargs)
         return plan_copy
 
-    def __call__(self, **kwargs):
-        print("calling1")
+    def __call__(self,executor:Executor, **kwargs):
         for key,value in self.__arg_info.items():
             if key in kwargs:
                 if not issubclass(type(kwargs[key]),value):
                     raise TypeError(key+" of binding is not subclass of "+value.__name__)
                     return
         temp_dic = kwargs
-        print(self.kwargs)
-        print("calling2")
         temp_dic.update(self.kwargs)
-        res = self.__plan_func(**temp_dic)
-        return res
+        if isgeneratorfunction(self.__plan_func):
+            self.__utility_eval = None
+            gen = self.__plan_func(**temp_dic)
+            self.__plan_func = lambda utility_eval:gen.send(utility_eval)
+        return self.__plan_func(**temp_dic)
+
 
     @property
     def argument_meta_info(self):
